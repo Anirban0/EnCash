@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-encash}
+      POSTGRES_USER: ${POSTGRES_USER:-encash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-encash}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-encash}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-prod}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      # Local compose runs over plain HTTP, so disable the HTTPS redirect.
+      DJANGO_SECURE_SSL_REDIRECT: "0"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080}
+      POSTGRES_DB: ${POSTGRES_DB:-encash}
+      POSTGRES_USER: ${POSTGRES_USER:-encash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-encash}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
