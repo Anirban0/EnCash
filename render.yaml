@@ -1,0 +1,79 @@
+# Render Blueprint — deploys EnCash as three managed resources:
+#   - PostgreSQL 16 database
+#   - Django/Gunicorn API (web service)
+#   - React/Vite SPA (static site)
+#
+# Usage: connect this repo on https://dashboard.render.com and select
+# "Blueprint" — Render will read this file automatically.
+#
+# IMPORTANT: After the first deploy, Render may assign names with a unique
+# suffix (e.g. encash-backend-xxxx). If that happens, update
+# CORS_ALLOWED_ORIGINS on the backend service and VITE_API_BASE on the
+# frontend service to match the real URLs, then redeploy the frontend.
+
+databases:
+  - name: encash-db
+    databaseName: encash
+    user: encash
+    plan: free
+
+services:
+  # ── Django API (Gunicorn) ─────────────────────────────────────────────────
+  - type: web
+    name: encash-backend
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Migrate before serving; Render exposes the port via $PORT.
+    startCommand: >-
+      python manage.py migrate --noinput &&
+      gunicorn encash.wsgi:application --bind 0.0.0.0:$PORT --workers 3
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: encash.settings.prod
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: encash-backend.onrender.com
+      # Render terminates TLS at its edge; no internal redirect needed.
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "0"
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://encash-frontend.onrender.com
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: encash-db
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: encash-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: encash-db
+          property: password
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: encash-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: encash-db
+          property: port
+
+  # ── React SPA (static site) ───────────────────────────────────────────────
+  - type: static
+    name: encash-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Injected at build time so the compiled JS calls the correct API host.
+      - key: VITE_API_BASE
+        value: https://encash-backend.onrender.com/api
+    routes:
+      # SPA fallback — all paths hand off to index.html for client-side routing.
+      - type: rewrite
+        source: /*
+        destination: /index.html
